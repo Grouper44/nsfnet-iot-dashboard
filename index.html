@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NSFNET IoT Dashboard — ISA-95 Level 2 監控</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:       #0f1117;
+    --card:     #1a1d27;
+    --border:   #2a2d3e;
+    --text:     #e2e8f0;
+    --sub:      #94a3b8;
+    --green:    #22c55e;
+    --yellow:   #f59e0b;
+    --red:      #ef4444;
+    --gray:     #475569;
+    --blue:     #3b82f6;
+    --purple:   #a855f7;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; min-height: 100vh; }
+
+  header {
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  header h1 { font-size: 1.25rem; font-weight: 700; }
+  header h1 span { color: var(--blue); }
+  .header-meta { display: flex; align-items: center; gap: 16px; font-size: 0.8rem; color: var(--sub); }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gray); display: inline-block; margin-right: 6px; }
+  .status-dot.live { background: var(--green); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  .config-bar {
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .config-bar label { font-size: 0.8rem; color: var(--sub); white-space: nowrap; }
+  .config-bar input {
+    flex: 1; min-width: 300px; max-width: 600px;
+    background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); padding: 6px 10px; border-radius: 6px; font-size: 0.8rem;
+  }
+  .btn {
+    padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer;
+    font-size: 0.8rem; font-weight: 600; transition: opacity .15s;
+  }
+  .btn:hover { opacity: .85; }
+  .btn-blue   { background: var(--blue);   color: #fff; }
+  .btn-gray   { background: var(--border); color: var(--text); }
+
+  main { padding: 20px 24px; display: flex; flex-direction: column; gap: 20px; }
+
+  /* 指標卡片 */
+  .metrics-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; }
+  .metric-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .metric-label  { font-size: 0.75rem; color: var(--sub); text-transform: uppercase; letter-spacing: .06em; }
+  .metric-value  { font-size: 1.8rem; font-weight: 700; line-height: 1; }
+  .metric-sub    { font-size: 0.75rem; color: var(--sub); }
+  .metric-value.green  { color: var(--green); }
+  .metric-value.yellow { color: var(--yellow); }
+  .metric-value.red    { color: var(--red); }
+  .metric-value.blue   { color: var(--blue); }
+
+  /* 兩欄佈局 */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px;
+  }
+  .card-title { font-size: 0.85rem; font-weight: 700; color: var(--sub); text-transform: uppercase;
+                letter-spacing: .06em; margin-bottom: 16px; }
+
+  /* NSFNET 拓樸圖 */
+  .topology-wrap {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px;
+  }
+  #topo-svg { width: 100%; height: auto; }
+
+  /* arc 狀態 legend */
+  .legend { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 14px; font-size: 0.78rem; }
+  .legend-item { display: flex; align-items: center; gap: 6px; color: var(--sub); }
+  .legend-dot  { width: 12px; height: 12px; border-radius: 3px; }
+
+  /* 圖表 */
+  .chart-wrap { position: relative; height: 220px; }
+
+  /* Arc 狀態表格 */
+  .arc-table-wrap { max-height: 260px; overflow-y: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  th { background: var(--bg); color: var(--sub); padding: 8px 10px; text-align: left;
+       font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+       position: sticky; top: 0; z-index: 1; }
+  td { padding: 7px 10px; border-bottom: 1px solid var(--border); }
+  tr:last-child td { border-bottom: none; }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 600;
+  }
+  .badge.normal   { background: rgba(34,197,94,.15);  color: var(--green); }
+  .badge.degraded { background: rgba(245,158,11,.15); color: var(--yellow); }
+  .badge.failed   { background: rgba(239,68,68,.15);  color: var(--red); }
+
+  /* ISA-95 說明 */
+  .isa-bar {
+    background: linear-gradient(135deg, #1e1b4b, #1a1d27);
+    border: 1px solid #3730a3;
+    border-radius: 12px; padding: 16px 20px;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;
+  }
+  .isa-level { display: flex; flex-direction: column; gap: 4px; }
+  .isa-tag   { font-size: 0.7rem; font-weight: 700; color: #818cf8; text-transform: uppercase; }
+  .isa-desc  { font-size: 0.8rem; color: var(--text); }
+
+  /* util bar */
+  .util-bar-bg { background: var(--border); border-radius: 4px; height: 6px; overflow: hidden; margin-top: 2px; }
+  .util-bar-fill { height: 100%; border-radius: 4px; transition: width .4s; }
+
+  #status-msg { font-size: 0.78rem; color: var(--sub); padding: 4px 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>NSFNET <span>IoT</span> Dashboard</h1>
+    <div style="font-size:.75rem;color:var(--sub);margin-top:4px;">
+      ISA-95 Level 1/2 — 多狀態流網路即時監控
+    </div>
+  </div>
+  <div class="header-meta">
+    <div><span class="status-dot" id="live-dot"></span><span id="live-label">未連線</span></div>
+    <div id="last-update">—</div>
+    <div id="clock" style="font-variant-numeric:tabular-nums;"></div>
+  </div>
+</header>
+
+<div class="config-bar">
+  <label>Apps Script URL：</label>
+  <input type="text" id="url-input" placeholder="https://script.google.com/macros/s/YOUR_ID/exec" value="https://script.google.com/macros/s/AKfycbydtf5HG75RUEUF7gkrQLZs4S9tmsi-uic_mqgEJjja5xYMnRfp8cYSOXkiVz1sZB8s/exec">
+  <button class="btn btn-blue" onclick="saveUrl()">連線</button>
+  <button class="btn btn-gray" onclick="loadDemo()">Demo 模式</button>
+  <span id="status-msg"></span>
+</div>
+
+<main>
+
+  <!-- ISA-95 說明列 -->
+  <div class="isa-bar">
+    <div class="isa-level">
+      <div class="isa-tag">Level 0 — 物理設備</div>
+      <div class="isa-desc">NSFNET 20 條網路鏈路 (arc a1~a20)，13 個節點，Seattle → Cambridge</div>
+    </div>
+    <div class="isa-level">
+      <div class="isa-tag">Level 1 — 感測/控制</div>
+      <div class="isa-desc">Python 模擬器：binomial 取樣 arc 容量，PPO agent 即時決策分流比例</div>
+    </div>
+    <div class="isa-level">
+      <div class="isa-tag">Level 2 — 監控 SCADA</div>
+      <div class="isa-desc">Google Apps Script + Sheets：紀錄狀態歷史，提供 JSON API</div>
+    </div>
+    <div class="isa-level">
+      <div class="isa-tag">雲端 / MES</div>
+      <div class="isa-desc">本頁面（GitHub Pages）：NSFNET 拓樸即時視覺化、PPO vs ECMP 比較</div>
+    </div>
+  </div>
+
+  <!-- 指標列 -->
+  <div class="metrics-row">
+    <div class="metric-card">
+      <div class="metric-label">PPO 吞吐量</div>
+      <div class="metric-value green" id="m-ppo-tp">—</div>
+      <div class="metric-sub">Mbps</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">ECMP 吞吐量</div>
+      <div class="metric-value blue" id="m-ecmp-tp">—</div>
+      <div class="metric-sub">Mbps</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">PPO 效率</div>
+      <div class="metric-value green" id="m-ppo-eff">—</div>
+      <div class="metric-sub">%</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">總可用容量</div>
+      <div class="metric-value" id="m-avail">—</div>
+      <div class="metric-sub">Mbps</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">正常鏈路</div>
+      <div class="metric-value green" id="m-normal">—</div>
+      <div class="metric-sub">/ 20 條</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">降速鏈路</div>
+      <div class="metric-value yellow" id="m-degraded">—</div>
+      <div class="metric-sub">條</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">故障鏈路</div>
+      <div class="metric-value red" id="m-failed">—</div>
+      <div class="metric-sub">條</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">PPO 超越 ECMP</div>
+      <div class="metric-value purple" id="m-improvement" style="color:var(--purple)">—</div>
+      <div class="metric-sub">%</div>
+    </div>
+  </div>
+
+  <!-- NSFNET 拓樸圖 -->
+  <div class="topology-wrap">
+    <div class="card-title">NSFNET 拓樸圖 — 即時鏈路狀態（Seattle → Cambridge）</div>
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div>正常（容量 ≥ 50%）</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--yellow)"></div>降速（容量 1~49%）</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div>故障（容量 = 0）</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--gray)"></div>未在路徑上</div>
+    </div>
+    <!--
+      NSFNET 13 節點座標（Seattle=0, Denver=1, ... Cambridge=12）
+      路徑：Seattle(0) → Cambridge(12)
+      節點編號與論文一致
+    -->
+    <svg id="topo-svg" viewBox="0 0 800 480" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L6,3 z" fill="#475569"/>
+        </marker>
+      </defs>
+
+      <!-- 邊（arc）— 先繪製，節點在上層 -->
+      <!-- a1: 0-1  --> <line id="arc-a1"  x1="60"  y1="60"  x2="160" y2="180" stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+      <!-- a2: 0-3  --> <line id="arc-a2"  x1="60"  y1="60"  x2="200" y2="60"  stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+      <!-- a3: 1-3  --> <line id="arc-a3"  x1="160" y1="180" x2="200" y2="60"  stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+      <!-- a4: 3-4  --> <line id="arc-a4"  x1="200" y1="60"  x2="340" y2="60"  stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+      <!-- a5: 4-5  --> <line id="arc-a5"  x1="340" y1="60"  x2="460" y2="60"  stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+      <!-- a6: 5-6  --> <line id="arc-a6"  x1="460" y1="60"  x2="580" y2="60"  stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+      <!-- a7: 6-9  --> <line id="arc-a7"  x1="580" y1="60"  x2="640" y2="180" stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+      <!-- a8: 9-8  --> <line id="arc-a8"  x1="640" y1="180" x2="580" y2="300" stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+      <!-- a9: 9-11 --> <line id="arc-a9"  x1="640" y1="180" x2="640" y2="360" stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+      <!-- a10:10-12--> <line id="arc-a10" x1="700" y1="300" x2="740" y2="420" stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+      <!-- a11:11-12--> <line id="arc-a11" x1="640" y1="360" x2="740" y2="420" stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+      <!-- a12: 1-2 --> <line id="arc-a12" x1="160" y1="180" x2="260" y2="300" stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+      <!-- a13: 4-7 --> <line id="arc-a13" x1="340" y1="60"  x2="460" y2="200" stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+      <!-- a14: 7-8 --> <line id="arc-a14" x1="460" y1="200" x2="580" y2="300" stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+      <!-- a15: 2-7 --> <line id="arc-a15" x1="260" y1="300" x2="460" y2="200" stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+      <!-- a16: 7-6 --> <line id="arc-a16" x1="460" y1="200" x2="580" y2="60"  stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+      <!-- a17: 8-11--> <line id="arc-a17" x1="580" y1="300" x2="640" y2="360" stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+      <!-- a18:11-10--> <line id="arc-a18" x1="640" y1="360" x2="700" y2="300" stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+      <!-- a19: 8-9 --> <line id="arc-a19" x1="580" y1="300" x2="640" y2="180" stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+      <!-- a20: 8-12--> <line id="arc-a20" x1="580" y1="300" x2="740" y2="420" stroke="#475569" stroke-width="3" stroke-linecap="round"/>
+
+      <!-- arc 標籤 -->
+      <text x="97"  y="117" font-size="9" fill="#64748b" text-anchor="middle">a1</text>
+      <text x="130" y="47"  font-size="9" fill="#64748b" text-anchor="middle">a2</text>
+      <text x="176" y="117" font-size="9" fill="#64748b" text-anchor="middle">a3</text>
+      <text x="270" y="47"  font-size="9" fill="#64748b" text-anchor="middle">a4</text>
+      <text x="400" y="47"  font-size="9" fill="#64748b" text-anchor="middle">a5</text>
+      <text x="520" y="47"  font-size="9" fill="#64748b" text-anchor="middle">a6</text>
+      <text x="617" y="117" font-size="9" fill="#64748b" text-anchor="middle">a7</text>
+      <text x="617" y="247" font-size="9" fill="#64748b" text-anchor="middle">a8</text>
+      <text x="652" y="270" font-size="9" fill="#64748b" text-anchor="middle">a9</text>
+      <text x="728" y="363" font-size="9" fill="#64748b" text-anchor="middle">a10</text>
+      <text x="698" y="400" font-size="9" fill="#64748b" text-anchor="middle">a11</text>
+      <text x="200" y="248" font-size="9" fill="#64748b" text-anchor="middle">a12</text>
+      <text x="393" y="140" font-size="9" fill="#64748b" text-anchor="middle">a13</text>
+      <text x="527" y="255" font-size="9" fill="#64748b" text-anchor="middle">a14</text>
+      <text x="355" y="258" font-size="9" fill="#64748b" text-anchor="middle">a15</text>
+      <text x="527" y="127" font-size="9" fill="#64748b" text-anchor="middle">a16</text>
+      <text x="617" y="337" font-size="9" fill="#64748b" text-anchor="middle">a17</text>
+      <text x="678" y="335" font-size="9" fill="#64748b" text-anchor="middle">a18</text>
+      <text x="618" y="243" font-size="9" fill="#64748b" text-anchor="middle">a19</text>
+      <text x="673" y="373" font-size="9" fill="#64748b" text-anchor="middle">a20</text>
+
+      <!-- 節點 -->
+      <g id="node-0">  <circle cx="60"  cy="60"  r="18" fill="#1e293b" stroke="#3b82f6" stroke-width="2.5"/>
+                        <text x="60"  y="64"  font-size="9" fill="#93c5fd" text-anchor="middle" font-weight="bold">SEA</text></g>
+      <g id="node-1">  <circle cx="160" cy="180" r="16" fill="#1e293b" stroke="#475569" stroke-width="2"/>
+                        <text x="160" y="184" font-size="9" fill="#94a3b8" text-anchor="middle">DEN</text></g>
+      <g id="node-2">  <circle cx="260" cy="300" r="16" fill="#1e293b" stroke="#475569" stroke-width="2"/>
+                        <text x="260" y="304" font-size="9" fill="#94a3b8" text-anchor="middle">DAL</text></g>
+      <g id="node-3">  <circle cx="200" cy="60"  r="16" fill="#1e293b" stroke="#475569" stroke-width="2"/>
+                        <text x="200" y="64"  font-size="9" fill="#94a3b8" text-anchor="middle">SJC</text></g>
+      <g id="node-4">  <circle cx="340" cy="60"  r="16" fill="#1e293b" stroke="#475569" stroke-width="2"/>
+                        <text x="340" y="64"  font-size="9" fill="#94a3b8" text-anchor="middle">CHI</text></g>
+      <g id="node-5">  <circle cx="460" cy="60"  r="16" fill="#1e293b" stroke="#475569" stroke-width="2"/>
+                        <text x="460" y="64"  font-size="9" fill="#94a3b8" text-anchor="middle">KCY</text></g>
+      <g id="node-6">  <circle cx="580" cy="60"  r="16" fill="#1e293b" stroke="#475569" stroke-width="2"/>
+                        <text x="580" y="64"  font-size="9" fill="#94a3b8" text-anchor="middle">CLE</text></g>
+      <g id="node-7">  <circle cx="460" cy="200" r="16" fill="#1e293b" stroke="#475569" stroke-width="2"/>
+                        <text x="460" y="204" font-size="9" fill="#94a3b8" text-anchor="middle">HOU</text></g>
+      <g id="node-8">  <circle cx="580" cy="300" r="16" fill="#1e293b" stroke="#475569" stroke-width="2"/>
+                        <text x="580" y="304" font-size="9" fill="#94a3b8" text-anchor="middle">ATL</text></g>
+      <g id="node-9">  <circle cx="640" cy="180" r="16" fill="#1e293b" stroke="#475569" stroke-width="2"/>
+                        <text x="640" y="184" font-size="9" fill="#94a3b8" text-anchor="middle">PIT</text></g>
+      <g id="node-10"> <circle cx="700" cy="300" r="16" fill="#1e293b" stroke="#475569" stroke-width="2"/>
+                        <text x="700" y="304" font-size="9" fill="#94a3b8" text-anchor="middle">DCY</text></g>
+      <g id="node-11"> <circle cx="640" cy="360" r="16" fill="#1e293b" stroke="#475569" stroke-width="2"/>
+                        <text x="640" y="364" font-size="9" fill="#94a3b8" text-anchor="middle">NYC</text></g>
+      <g id="node-12"> <circle cx="740" cy="420" r="18" fill="#1e293b" stroke="#22c55e" stroke-width="2.5"/>
+                        <text x="740" y="424" font-size="9" fill="#86efac" text-anchor="middle" font-weight="bold">CAM</text></g>
+
+      <!-- 路徑標籤 -->
+      <text x="400" y="475" font-size="10" fill="#475569" text-anchor="middle">
+        SEA=Seattle(src)　CAM=Cambridge(dst)　5 條候選路徑
+      </text>
+    </svg>
+  </div>
+
+  <!-- 圖表列 -->
+  <div class="two-col">
+    <div class="card">
+      <div class="card-title">吞吐量趨勢（近 30 輪）</div>
+      <div class="chart-wrap"><canvas id="chart-throughput"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-title">PPO vs ECMP 效率比較</div>
+      <div class="chart-wrap"><canvas id="chart-eff"></canvas></div>
+    </div>
+  </div>
+
+  <!-- arc 狀態表格 -->
+  <div class="card">
+    <div class="card-title">Arc 狀態詳細（最新一輪）</div>
+    <div class="arc-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Arc</th>
+            <th>容量 (Mbps)</th>
+            <th>最大容量</th>
+            <th>使用率</th>
+            <th>狀態</th>
+          </tr>
+        </thead>
+        <tbody id="arc-tbody">
+          <tr><td colspan="5" style="text-align:center;color:var(--sub);padding:20px">等待資料...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ============================================================
+// 設定
+// ============================================================
+const REFRESH_MS = 10000;
+let appsScriptUrl = localStorage.getItem('nsfnet_url') || 'https://script.google.com/macros/s/AKfycbydtf5HG75RUEUF7gkrQLZs4S9tmsi-uic_mqgEJjja5xYMnRfp8cYSOXkiVz1sZB8s/exec';
+let refreshTimer  = null;
+let isDemoMode    = false;
+let demoRound     = 0;
+
+// Chart.js 實例
+let chartTp  = null;
+let chartEff = null;
+
+// arc 顏色對應
+const ARC_COLOR = { normal: '#22c55e', degraded: '#f59e0b', failed: '#ef4444', unknown: '#475569' };
+
+// ============================================================
+// 頁面初始化
+// ============================================================
+window.onload = () => {
+  startClock();
+  document.getElementById('url-input').value = appsScriptUrl;
+  initCharts();
+  if (appsScriptUrl) {
+    startRefresh();
+  }
+};
+
+function saveUrl() {
+  const url = document.getElementById('url-input').value.trim();
+  if (!url) { setStatus('請輸入 Apps Script URL', 'warn'); return; }
+  appsScriptUrl = url;
+  localStorage.setItem('nsfnet_url', url);
+  isDemoMode = false;
+  setStatus('已儲存，連線中...', 'ok');
+  stopRefresh();
+  startRefresh();
+}
+
+function loadDemo() {
+  isDemoMode = true;
+  appsScriptUrl = '';
+  setStatus('Demo 模式（模擬資料）', 'ok');
+  stopRefresh();
+  renderData(generateDemoData());
+  startRefresh();
+}
+
+// ============================================================
+// 資料抓取
+// ============================================================
+function startRefresh() {
+  fetchAndRender();
+  refreshTimer = setInterval(fetchAndRender, REFRESH_MS);
+}
+function stopRefresh() {
+  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+}
+
+async function fetchAndRender() {
+  if (isDemoMode) {
+    renderData(generateDemoData());
+    return;
+  }
+  if (!appsScriptUrl) return;
+  try {
+    const resp = await fetch(appsScriptUrl, { method: 'GET' });
+    const data = await resp.json();
+    renderData(data);
+    setLive(true);
+  } catch (e) {
+    setStatus(`連線失敗：${e.message}`, 'err');
+    setLive(false);
+  }
+}
+
+// ============================================================
+// 渲染
+// ============================================================
+function renderData(data) {
+  const snap  = data.latest_snapshot;
+  const hist  = data.history || [];
+  const arcs  = data.arc_states || [];
+
+  // 指標卡片
+  if (snap) {
+    const imp = snap.ecmp_throughput > 0
+      ? ((snap.ppo_throughput - snap.ecmp_throughput) / snap.ecmp_throughput * 100).toFixed(1)
+      : '—';
+    setText('m-ppo-tp',     snap.ppo_throughput.toFixed(1));
+    setText('m-ecmp-tp',    snap.ecmp_throughput.toFixed(1));
+    setText('m-ppo-eff',    snap.ppo_efficiency.toFixed(1));
+    setText('m-avail',      snap.total_available.toFixed(0));
+    setText('m-normal',     snap.active_arcs);
+    setText('m-degraded',   snap.degraded_arcs);
+    setText('m-failed',     snap.failed_arcs);
+    setText('m-improvement', imp + (imp !== '—' ? '' : ''));
+    setText('last-update',  snap.timestamp);
+    setLive(true);
+  }
+
+  // 拓樸圖著色
+  updateTopology(arcs);
+
+  // Arc 表格
+  updateArcTable(arcs);
+
+  // 圖表
+  updateCharts(hist);
+}
+
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+
+// ============================================================
+// 拓樸圖著色
+// ============================================================
+function updateTopology(arcStates) {
+  const stateMap = {};
+  arcStates.forEach(a => { stateMap[a.arc_id] = a; });
+
+  for (let i = 1; i <= 20; i++) {
+    const arcId = 'a' + i;
+    const el    = document.getElementById('arc-' + arcId);
+    if (!el) continue;
+    const s   = stateMap[arcId];
+    const status = s ? s.status : 'unknown';
+    const color  = ARC_COLOR[status] || ARC_COLOR.unknown;
+    el.setAttribute('stroke', color);
+
+    // 粗細依使用率
+    const util = s ? s.utilization : 0;
+    const w    = 2 + util * 5;
+    el.setAttribute('stroke-width', w.toFixed(1));
+  }
+}
+
+// ============================================================
+// Arc 表格
+// ============================================================
+function updateArcTable(arcStates) {
+  const tbody = document.getElementById('arc-tbody');
+  if (!arcStates || arcStates.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--sub);padding:20px">等待資料...</td></tr>';
+    return;
+  }
+
+  const sorted = [...arcStates].sort((a, b) => {
+    const order = { failed: 0, degraded: 1, normal: 2 };
+    return (order[a.status] ?? 3) - (order[b.status] ?? 3);
+  });
+
+  tbody.innerHTML = sorted.map(arc => {
+    const util_pct = (arc.utilization * 100).toFixed(1);
+    const barColor = arc.utilization > 0.8 ? 'var(--red)' : arc.utilization > 0.5 ? 'var(--yellow)' : 'var(--green)';
+    return `
+      <tr>
+        <td style="font-weight:700;color:var(--blue)">${arc.arc_id}</td>
+        <td>${arc.capacity}</td>
+        <td>${arc.max_capacity}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="util-bar-bg" style="flex:1">
+              <div class="util-bar-fill" style="width:${util_pct}%;background:${barColor}"></div>
+            </div>
+            <span style="font-variant-numeric:tabular-nums;font-size:.75rem;min-width:36px">${util_pct}%</span>
+          </div>
+        </td>
+        <td><span class="badge ${arc.status}">${arc.status}</span></td>
+      </tr>`;
+  }).join('');
+}
+
+// ============================================================
+// Chart.js 圖表
+// ============================================================
+function initCharts() {
+  const baseOpts = {
+    responsive: true, maintainAspectRatio: false,
+    animation: { duration: 300 },
+    plugins: { legend: { labels: { color: '#94a3b8', boxWidth: 12, font: { size: 11 } } } },
+    scales: {
+      x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: '#1e293b' } },
+      y: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: '#1e293b' } }
+    }
+  };
+
+  chartTp = new Chart(document.getElementById('chart-throughput'), {
+    type: 'line',
+    data: { labels: [], datasets: [
+      { label: 'PPO (Mbps)',  data: [], borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,.1)',  tension: .35, fill: true, pointRadius: 2 },
+      { label: 'ECMP (Mbps)', data: [], borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.1)', tension: .35, fill: true, pointRadius: 2 },
+    ]},
+    options: { ...baseOpts }
+  });
+
+  chartEff = new Chart(document.getElementById('chart-eff'), {
+    type: 'bar',
+    data: { labels: [], datasets: [
+      { label: 'PPO 效率 (%)',  data: [], backgroundColor: 'rgba(34,197,94,.7)',  borderRadius: 4 },
+      { label: 'ECMP 效率 (%)', data: [], backgroundColor: 'rgba(59,130,246,.7)', borderRadius: 4 },
+    ]},
+    options: { ...baseOpts, scales: {
+      ...baseOpts.scales,
+      y: { ...baseOpts.scales.y, min: 50, max: 100 }
+    }}
+  });
+}
+
+function updateCharts(history) {
+  if (!history || history.length === 0) return;
+  const recent = history.slice(-30);
+  const labels = recent.map(h => 'R' + h.round);
+  const ppoTp  = recent.map(h => h.ppo_throughput);
+  const ecmpTp = recent.map(h => h.ecmp_throughput);
+  const ppoEff = recent.map(h => h.ppo_efficiency);
+  const ecmpEff= recent.map(h => h.ecmp_efficiency);
+
+  chartTp.data.labels          = labels;
+  chartTp.data.datasets[0].data = ppoTp;
+  chartTp.data.datasets[1].data = ecmpTp;
+  chartTp.update('none');
+
+  chartEff.data.labels           = labels;
+  chartEff.data.datasets[0].data = ppoEff;
+  chartEff.data.datasets[1].data = ecmpEff;
+  chartEff.update('none');
+}
+
+// ============================================================
+// Demo 資料產生
+// ============================================================
+const ARC_DEFS = [
+  {id:'a1', maxCap:135}, {id:'a2', maxCap:225}, {id:'a3', maxCap:135},
+  {id:'a4', maxCap:180}, {id:'a5', maxCap:135}, {id:'a6', maxCap:135},
+  {id:'a7', maxCap:225}, {id:'a8', maxCap:225}, {id:'a9', maxCap:180},
+  {id:'a10',maxCap:90},  {id:'a11',maxCap:90},  {id:'a12',maxCap:135},
+  {id:'a13',maxCap:135}, {id:'a14',maxCap:225}, {id:'a15',maxCap:180},
+  {id:'a16',maxCap:90},  {id:'a17',maxCap:90},  {id:'a18',maxCap:135},
+  {id:'a19',maxCap:135}, {id:'a20',maxCap:225}
+];
+
+let demoHistory = [];
+
+function generateDemoData() {
+  demoRound++;
+  const ts = new Date().toLocaleString('zh-TW');
+
+  // 取樣 arc 狀態
+  const arcStates = ARC_DEFS.map(def => {
+    const r = Math.random();
+    let cap;
+    if (r < 0.02)       cap = 0;
+    else if (r < 0.15)  cap = def.maxCap * (0.2 + Math.random() * 0.3);
+    else                cap = def.maxCap * (0.7 + Math.random() * 0.3);
+    cap = Math.round(cap / 45) * 45; // 量化到 45 Mbps 倍數
+    cap = Math.max(0, Math.min(cap, def.maxCap));
+
+    const util   = cap > 0 ? Math.random() * 0.85 : 0;
+    const status = cap <= 0 ? 'failed' : (cap < def.maxCap * 0.5 ? 'degraded' : 'normal');
+    return { arc_id: def.id, capacity: cap, max_capacity: def.maxCap,
+             utilization: parseFloat(util.toFixed(3)), status };
+  });
+
+  const normal   = arcStates.filter(a => a.status === 'normal').length;
+  const degraded = arcStates.filter(a => a.status === 'degraded').length;
+  const failed   = arcStates.filter(a => a.status === 'failed').length;
+
+  const avail    = 150 + Math.random() * 200;
+  const ppoTp    = avail * (0.88 + Math.random() * 0.10);
+  const ecmpTp   = avail * (0.72 + Math.random() * 0.08);
+
+  const snap = {
+    timestamp:        ts,
+    round:            demoRound,
+    ppo_throughput:   parseFloat(ppoTp.toFixed(1)),
+    ecmp_throughput:  parseFloat(ecmpTp.toFixed(1)),
+    ppo_efficiency:   parseFloat((ppoTp / avail * 100).toFixed(1)),
+    ecmp_efficiency:  parseFloat((ecmpTp / avail * 100).toFixed(1)),
+    total_available:  parseFloat(avail.toFixed(1)),
+    active_arcs:      normal,
+    degraded_arcs:    degraded,
+    failed_arcs:      failed,
+  };
+
+  demoHistory.push(snap);
+  if (demoHistory.length > 60) demoHistory.shift();
+
+  return { latest_snapshot: snap, history: [...demoHistory], arc_states: arcStates };
+}
+
+// ============================================================
+// 工具
+// ============================================================
+function setLive(live) {
+  document.getElementById('live-dot').className = 'status-dot' + (live ? ' live' : '');
+  document.getElementById('live-label').textContent = live ? '即時連線' : (isDemoMode ? 'Demo 模式' : '未連線');
+}
+
+function setStatus(msg, type) {
+  const el = document.getElementById('status-msg');
+  el.textContent = msg;
+  el.style.color = type === 'err' ? 'var(--red)' : type === 'warn' ? 'var(--yellow)' : 'var(--green)';
+}
+
+function startClock() {
+  const el = document.getElementById('clock');
+  setInterval(() => {
+    el.textContent = new Date().toLocaleTimeString('zh-TW');
+  }, 1000);
+}
+</script>
+</body>
+</html>
