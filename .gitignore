@@ -1,0 +1,10 @@
+# Model 檔（體積大，不上傳 GitHub）
+ppo_gnn_mss_best.zip
+vecnormalize_stats.pkl
+
+# VSCode
+.vscode/
+
+# Python
+__pycache__/
+*.pyc
