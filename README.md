@@ -128,12 +128,11 @@ INTERVAL_SECONDS = 10   # 每幾秒推一次
 MAX_ROUNDS       = 0    # 0 = 無限執行
 ```
 
-### Step 3：GitHub Pages 部署 ⚠️ 待完成
+### Step 3：GitHub Pages 部署 ✅ 完成
 
-1. 建立新的 GitHub repository（例如：`nsfnet-iot-dashboard`）
-2. 將 `index.html` 上傳（只需這一個檔案）
-3. Settings → Pages → Source 選 `main` branch → Save
-4. 開啟頁面後 Apps Script URL 已預設填好，直接點「連線」即可看到即時資料
+- Repository：`https://github.com/Grouper44/nsfnet-iot-dashboard`
+- 頁面網址：`https://grouper44.github.io/nsfnet-iot-dashboard/`
+- Settings → Pages → Branch: `main` 已設定
 
 ---
 
@@ -175,13 +174,30 @@ MAX_ROUNDS       = 0    # 0 = 無限執行
 | 資料夾建立 | ✅ 完成 |
 | `simulator.py` | ✅ 完成，URL 已填入，測試通過（float32 序列化 bug 已修正，隨機 seed） |
 | `apps_script.js` | ✅ 完成，SHEET_ID 已填入，資料已確認寫入 Sheets |
-| `index.html` | ✅ 完成，Apps Script URL 已預設填入，支援 Demo 模式 |
+| `index.html` | ✅ 完成，重新設計（左右 10% 留白、美國地圖背景、arc 標籤不重疊） |
 | `nsfnet_multistate_arcs.csv` | ✅ 已放入資料夾 |
 | `nsfnet_paths.csv` | ✅ 已放入資料夾 |
-| `ppo_gnn_mss_best.zip` | ✅ 已放入資料夾 |
-| `vecnormalize_stats.pkl` | ✅ 已放入資料夾 |
+| `ppo_gnn_mss_best.zip` | ✅ 已放入資料夾（git 忽略，不上傳） |
+| `vecnormalize_stats.pkl` | ✅ 已放入資料夾（git 忽略，不上傳） |
 | Google Sheets 資料寫入 | ✅ 已確認資料正常進來 |
-| GitHub Pages 部署 | ⚠️ 待上傳 `index.html` |
+| GitHub Pages 部署 | ✅ 已上線 `https://grouper44.github.io/nsfnet-iot-dashboard/` |
+
+---
+
+## 前端改版紀錄（index.html）
+
+### v2（最新）
+- 左右各留 10% 空白，所有內容在中間 80% 欄寬顯示
+- 拓樸圖 viewBox 擴大至 1000×560
+- 節點座標依照美國**實際地理位置**重新排布
+  - Seattle（左上）→ Cambridge（右上）呈現由西向東的真實路徑走向
+- 背景加入美國本土 SVG 輪廓、主要州界線、五大湖
+- 每個節點顯示縮寫 + 完整城市名
+- arc 標籤手動偏移到線旁，加半透明背景遮罩，不再重疊
+
+### v1（初始版本）
+- 滿版佈局，節點以邏輯位置排列
+- arc 標籤位置未優化，部分重疊
 
 ---
 
